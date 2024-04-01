@@ -42,6 +42,57 @@ class AmongUsELO:
     #     self.crewmate_elo = 0
     #     self.impostor_elo = 0
     #     self.overall_elo = 0
+class Event:
+    def __init__(self, event, match):
+        self.match = match
+        self.eventType = event['Event']
+        self.time = event['Time']
+        self.name = None
+        self.player = None
+        self.target = None
+        self.type = None
+        self.taskType = None
+        self.taskName = None
+        self.gameCode = None
+        self.WinReason = None
+        self.deadPlayer = None
+        self.process_event(event)
+    def process_event(self, event):
+        match self.eventType:
+            case "StartGame":
+                self.gameCode = event['GameCode']
+            case "Task":
+                self.name = event['Name']
+                self.taskType = event['TaskType']
+                self.taskName = event['TaskName']
+            case "Death":
+                self.name = event['Name']
+            case "EndGame":
+                self.WinReason = event['WinReason']
+                self.gameCode = event['GameCode']
+            case "MeetingStart":
+                self.gameCode = event['GameCode']
+                self.player = event['Player'] if 'Player' in event else None
+            case "MeetingEnd":
+                self.gameCode = event['GameCode']
+            case "PlayerVote":
+                self.player = event['Player']
+                self.target = event['Target']
+                self.type = event['Type']
+            case "GameCancel":
+                self.player = event['Player']
+            case "BodyReport":
+                self.player = event['Player']
+                self.deadPlayer = event['DeadPlayer']
+            case "ManualGameEnd":
+                self.player = event['Player']
+            case "Disconnect":
+                self.name = event['Name']
+
+
+
+        
+
 class Match:
     def __init__(self, id, timeOfMatch, players, crewmates, impostors, result, reason, event_file):
         self.id = id
@@ -52,6 +103,85 @@ class Match:
         self.result = result
         self.reason = reason
         self.event_file = event_file
+        self.events = []
+        self.deadPlayers = []
+        self.get_players()
+        self.get_result()
+        self.get_events()
+        self.get_first_dead()
+        #self.get_real_stats()
+
+    def get_result(self):
+        if(self.reason == "null"):
+            if(self.result == "HumansByVote" or self.result == "HumansByTask"):
+                self.reason = self.result
+                self.result = "Crewmates Win"
+            else:
+                self.reason = self.result
+                self.result = "Impostors Win"
+    def get_players(self):
+        players = []
+        crewmates = []
+        impostors = []
+        for player in self.players:
+            if(player in self.impostors):
+                players.append(Player(player, "impostor"))
+            elif(player in self.crewmates):
+                players.append(Player(player))
+        self.players = players
+    def get_events(self):
+        eventsFolder = './events'
+        for events_file in os.listdir(eventsFolder):
+            #print(f"Opening {events_file}")
+            if(events_file.endswith(".json")):
+                events_filePath = os.path.join(eventsFolder, events_file)
+                with open(events_filePath, 'r') as file:
+                    events = json.load(file)
+                    for event in events:
+                        eventObj = Event(event, self)
+                        self.events.append(eventObj)
+    def get_first_dead(self):
+        try:
+            deadPlayers = []
+            for event in self.events:
+                if event.eventType == "MeetingStart" or event.eventType == "PlayerVote" or event.eventType == "BodyReport":
+                    if(len(deadPlayers) < 1):
+                        continue
+                    else:
+                        break
+                if event.eventType == "Death":
+                    deadPlayers.append(event.name)
+            self.deadPlayers = deadPlayers
+        except Exception as error:
+            print(f"Error: {error}")
+
+                        
+
+
+
+    
+    
+    # def get_real_stats(self):
+    #     for player in self.players:
+    #         if(player.team == "crewmate"):
+                
+    #         else:
+
+
+#def get_time_of_death(events):
+
+
+class Player:
+    def __init__(self, name, team="crewmate"):
+        self.name = name
+        self.team = team
+        self.firstDead = False
+        self.kills = 0
+        self.reported = 0
+        self.timeAlive = ""
+        self.votes = {}
+        self.ejects = 0
+
 
 
 
@@ -84,11 +214,11 @@ def process_match_files(folderPath):
                 id = data['MatchID']
                 timeOfMatch = data['gameStarted']
                 players = list(data['players'].replace(" ", "").split(","))
-                print(f"Players: {players}")
+                #print(f"Players: {players}")
                 impostors = list(data['impostors'].replace(" ", "").split(","))
-                print(f"Impostors: {impostors}")
+                #print(f"Impostors: {impostors}")
                 crewmates = list(set(players).difference(impostors))
-                print(f"Crewmates: {crewmates}")
+                #print(f"Crewmates: {crewmates}")
                 #print(crewmates)
                 result = data['result']
                 reason = data['reason'] if 'reason' in data else "null"
@@ -96,12 +226,34 @@ def process_match_files(folderPath):
 
                 match = Match(id, timeOfMatch, players, crewmates, impostors, result, reason, event_file)
                 matches.append(match)
+                
+
     #print(matches)
 match_folder = './matches'
 process_match_files(match_folder)
-#for match in matches:
-    #print(f"MatchId: {match.id} | Players: {match.players} | Crewmates: {match.crewmates} | Impostors: {match.impostors} | Result: {match.result} | Reason: {match.reason}" )
+matches = sorted(matches, key=lambda x:x.timeOfMatch)
 
+for match in matches:
+    match_players = []
+    match_crewmates = []
+    match_impostors = []
+    match_events = []
+
+    if match.result == "Canceled":
+        continue
+
+    for player in match.players:
+        if player.team == "crewmate":
+            match_crewmates.append(player.name)
+        elif player.team == "impostor":
+            match_impostors.append(player.name)
+        match_players.append(player.name)
+
+
+    #print(f"MatchId: {match.id} | Players: {match_players} | Crewmates: {match_crewmates} | Impostors: {match_impostors} | Result: {match.result} | Reason: {match.reason} | FirstDeads:  {match.deadPlayers}")
+    f = open('matches.txt', 'a')
+    f.write(f"MatchId: {match.id}   |   Players: {match_players}    |   Crewmates: {match_crewmates}    |   Impostors: {match_impostors}    |   Result: {match.result}  |   Reason: {match.reason}  |   FirstDeads:  {match.deadPlayers} \n")
+    f.close()
 
 
 
